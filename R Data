@@ -76,7 +76,7 @@ historical.turnout.summary <- function(adf, district.type="U.S. Senate", distric
 }
 
 
-project.turnout <- function(adf,years=c(2012,2014,2016),target.district.type="State House",similar.district.types=c('Attorney General','U.S. Senate'),top.ballot.district.type="President") {
+project.turnout <- function(adf,years=c(2012,2014,2016),target.district.type="U.S. Senate",similar.district.types=c('Attorney General','U.S. House'),top.ballot.district.type="President") {
 	# look for good elections in years
 	case.type = 0
 	gl <- adf[which(adf$year %in% years & adf$district_type == target.district.type & !is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]	
