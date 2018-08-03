@@ -59,7 +59,7 @@ historical.election.summary <- function(adf) {
    return (df) 
 }
 
-historical.turnout.summary <- function(adf, district.type="State Senator", district.number='19',years=c(2012,2014,2016)) {
+historical.turnout.summary <- function(adf, district.type="State Senator", district.number='',years=c(2012,2014,2016)) {
 	s <- adf[which(adf$district_type == district.type & adf$district_number == district.number & adf$year %in% years),]
 	
 	df <- ddply( s, "year", 
