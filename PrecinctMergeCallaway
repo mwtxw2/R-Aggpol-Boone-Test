@@ -1,0 +1,13 @@
+#install dplyr
+install.packages("dplyr")
+
+#Import Data and precinct table
+
+#Step 3
+library(dplyr)
+
+#Use dplyr left_join function to add precinct_name to data
+precinctmerge<-left_join(Callaway,PrecinctCallaway,by=c("year","precinct"))
+
+#Save data as csv
+write_csv(precinctmerge,"/Users/matt/Desktop/callawaymerge.csv",na="NA",append=FALSE)
