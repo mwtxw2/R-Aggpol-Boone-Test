@@ -1,0 +1,184 @@
+library(plyr)
+
+major.party.bias <- function(adf) {	
+	
+  # aggregate base partisan vote -  lowest non-zero turnout by party, given any election
+
+  abpv_rep <- min(adf[,"rep_turnout_pct"],na.rm=TRUE)
+  abpv_dem <- min(adf[,"dem_turnout_pct"],na.rm=TRUE)
+  
+  # aggregate base partisan is combination of major parties worst scores
+  base_abpv = abpv_rep + abpv_dem
+  # swing is what is left after the aggregate base partisan support is removed
+  abpv_swing = 1.0 - base_abpv
+  
+  # remove elections w/ no contender ie NA rep or NA dem turnout
+  tsa <- adf[which(!is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]  
+  # add a abs difference of rep v dem column
+  tsa[,"spread"] <- abs(tsa$dem_turnout_pct - tsa$rep_turnout_pct)
+  
+  # average party performance - average of the top 3 best matched races (sorted by abs(rep-dem) performance)
+  app_dem <- mean(tsa[order(tsa$spread)[1:3],]$dem_turnout_pct)
+  app_rep <- mean(tsa[order(tsa$spread)[1:3],]$rep_turnout_pct)
+    
+  # aggreage soft partisan vote - difference between the average worst over each year and the absolute worst (aggregate base partisan vote)
+  tsa <- adf[which(!is.na(adf$rep_turnout)),]
+  abpv_rep_soft <- mean(aggregate(tsa$rep_turnout_pct,tsa["year"],min)[,"x"]) - abpv_rep
+  tsa <- adf[which(!is.na(adf$dem_turnout)),]
+  abpv_dem_soft <- mean(aggregate(tsa$dem_turnout_pct,tsa["year"],min)[,"x"]) - abpv_dem
+  
+  # tossup is everything left after we take out base and soft support for both major parties
+  abpv_tossup = abs(1.0 - abpv_rep_soft - abpv_rep - abpv_dem_soft - abpv_dem)
+  
+  partisan.rep <- abpv_rep + abpv_rep_soft
+  partisan.dem <- abpv_dem + abpv_dem_soft
+  
+  return (data.frame(partisan.base=base_abpv,partisan.swing=abpv_swing,tossup=abpv_tossup,
+      app.rep=app_rep,base.rep=abpv_rep,soft.rep=abpv_rep_soft,app.dem=app_dem,base.dem=abpv_dem,soft.dem=abpv_dem_soft,
+      partisan.rep=partisan.rep, partisan.dem=partisan.dem)) 
+}
+
+historical.election.summary <- function(adf) {
+	df <- ddply(adf, c("year", "district_type"), function(x) {
+			  year = x$year[1]
+			  district.type = x$district_type[1]
+			  total.turnout = sum(x$total_turnout)
+			  x[is.na(x)] <- 0
+			  rep.turnout = sum(x$rep_turnout)
+			  dem.turnout = sum(x$dem_turnout)
+			  oth.turnout = sum(x$oth_turnout)
+			  rep.turnout.pct = rep.turnout / total.turnout 
+			  dem.turnout.pct = dem.turnout / total.turnout 
+			  oth.turnout.pct = oth.turnout / total.turnout 
+			
+			  return(data.frame(year=year,district_type = district.type, total.turnout=total.turnout,
+					rep.turnout=rep.turnout,rep.turnout.percent=rep.turnout.pct,
+					dem.turnout=dem.turnout,dem.turnout.percent=dem.turnout.pct,
+					oth.turnout=oth.turnout,oth.turnout.percent=oth.turnout.pct))  
+				})
+   return (df) 
+}
+
+historical.turnout.summary <- function(adf, district.type="U.S. House", district.number='3',years=c(2012,2014,2016)) {
+	s <- adf[which(adf$district_type == district.type & adf$district_number == district.number & adf$year %in% years),]
+	
+	df <- ddply( s, "year", 
+			function(x) {
+				year = x$year[1]
+				total.turnout = sum(x$total_turnout)
+				total.registration = sum(x$total_registration)
+				return(data.frame(year=year, total.turnout=total.turnout, total.registration=total.registration))			
+			}
+		)
+		
+	return(df)		
+	
+}
+
+
+project.turnout <- function(adf,years=c(2012,2014,2016),target.district.type="U.S. House",similar.district.types=c('U.S. Senate','State Senate', 'State Auditor', 'Governor'),top.ballot.district.type="U.S. Senate") {
+	# look for good elections in years
+	case.type = 0
+	gl <- adf[which(adf$year %in% years & adf$district_type == target.district.type & !is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]	
+	# case 1 - major parties ran in 2001,2005 (governor + lt governor + HD)
+	# we'll calculate the average_turnout x downballot_turnout
+	proj.turnout <- 0.0
+	if(nrow(gl) >= 2 ){
+		down.ballot.turnout <- mean((gl$dem_turnout + gl$rep_turnout) / gl$total_registration)		
+		gl <- adf[which(adf$year %in% years & adf$district_type == top.ballot.district.type),]				
+		top.ticket.turnout <- mean(gl$total_turnout / gl$total_registration)
+		gl <- adf[which(adf$year %in% years & !is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]				
+		avg.turnout <- mean((gl$dem_turnout + gl$rep_turnout) / gl$total_registration)	
+		runoff <- down.ballot.turnout / top.ticket.turnout
+		proj.turnout <- runoff * avg.turnout
+		case.type = 1
+	}	
+	# case 2 - missing major party candidate in ''years'', so we 'll just take the average of what we've got walking backwards from the last known good year
+	# need more than one HD election
+	else {		
+		gl <- adf[which(adf$district_type == target.district.type & !is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]	
+		if(nrow(gl) >= 1 ) {
+			# calculate the average turnout of at least one election
+			proj.turnout <- mean((gl$dem_turnout + gl$rep_turnout) / gl$total_registration)						
+			case.type = 2
+		}
+		else {
+			# we dont have any evenly matched house races so we'll look at ''similar.district.types'' as a substitute
+			gl <- adf[which((adf$district_type %in% similar.district.types) & !is.na(adf$dem_turnout) & !is.na(adf$rep_turnout)),]	
+			if(nrow(gl) >= 1) {
+				proj.turnout <- mean((gl$dem_turnout + gl$rep_turnout) / gl$total_registration)										
+				case.type = 3
+			}
+			else {
+				proj.turnout <- 0			
+				case.type = 4
+			}
+		}
+	}
+	# project the actual registration based on the known last registration in the df
+	reg <- adf[1,]$last_registration
+	proj.turnout.count <- proj.turnout  * reg
+	
+	return(data.frame(proj.turnout.percent=proj.turnout,proj.turnout.count=proj.turnout.count,current.reg=reg,case.type=case.type))
+}
+
+# apply the major party bias to the projected turnout 
+apply.turnout <- function(adf) {
+	# take proj.turnout.count (from project.turnout) and combine it with partisan percentages from major.party.bias
+	
+	
+	adf$proj.turnout.dem <- floor(adf$proj.turnout.count * adf$app.dem)
+	adf$proj.turnout.rep <- floor(adf$proj.turnout.count * adf$app.rep)
+	adf$votes.to.win <- floor(adf$proj.turnout.count/2)+1
+	
+	return(adf)
+}
+
+district.summary <- function(x) {
+	
+	# compute district-level attributes from the precinct data frame
+	# weight averages by precinct size, default is FALSE
+	# average - app.dem,app.rep, base.dem, base.rep, soft.dem,soft.rep
+	# recalculate - partisan.base, partisan.swing,tossup, proj.turnout.percentage
+	# sum - current.reg, proj.turnout.count
+	
+	current.reg <- sum(x$current.reg)
+	proj.turnout.count <- floor(sum(x$proj.turnout.count))
+	proj.turnout.percentage <- proj.turnout.count/current.reg
+
+	app.dem <- mean(x$app.dem)
+	app.rep <- mean(x$app.rep)
+
+	base.rep <- mean(x$base.rep)
+	base.dem <- mean(x$base.dem)
+
+	soft.rep <- mean(x$soft.rep)
+	soft.dem <- mean(x$soft.dem)
+
+	partisan.rep <- base.rep+soft.rep
+	partisan.dem <- base.dem+soft.dem
+
+	partisan.base <- base.rep + base.dem
+	partisan.swing <- soft.rep + soft.dem
+	tossup <- 1 - partisan.swing-partisan.base
+	
+	proj.turnout.rep <- floor(proj.turnout.count * app.rep)
+	proj.turnout.dem <- floor(proj.turnout.count * app.dem)
+	
+	tossup <- 1.0 - ((proj.turnout.rep + proj.turnout.dem) / proj.turnout.count)
+		
+	votes.to.win <- proj.turnout.count / 2 + 1
+	
+	return(data.frame(current.reg=current.reg,proj.turnout.count=proj.turnout.count,proj.turnout.percentage=proj.turnout.percentage,
+		partisan.base=partisan.base,partisan.swing=partisan.swing,tossup=tossup,partisan.dem=partisan.dem,partisan.rep=partisan.rep,
+		votes.to.win=votes.to.win,proj.turnout.rep=proj.turnout.rep,proj.turnout.dem=proj.turnout.dem,
+		app.dem=app.dem,base.dem=base.dem,soft.dem=soft.dem,
+		app.rep=app.rep,base.rep=base.rep,soft.rep=soft.rep))
+	
+} 
+
+district.analyze <- function(dis) {
+	ret <- ddply(dis, .(precinct_name), function(x) merge(project.turnout(x),major.party.bias(x)))
+	ret <- apply.turnout(ret)
+	return(ret)
+}
