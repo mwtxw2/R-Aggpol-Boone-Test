@@ -1,0 +1,113 @@
+#Change turnout "0" to "" in raw data 
+
+
+#First Step
+install.packages(c("plyr", "RColorBrewer", "ggplot2"))
+
+#Second Step
+#Input code from R-Aggpol-Boone-Test/Callaway Into R
+
+#Third Step
+library(plyr)
+library(ggplot2)
+library(RColorBrewer)
+
+#Fourth Step
+#Upload CSV Data File callawaymerge.csv into R 
+#precinct_name=Chr
+#Seat=chr
+#Year=chr
+#district_type=chr
+#district_number=chr
+#total_registration=num
+#dem_turnout=int
+#rep_turnout=int
+#rep_turnout_pct=num
+
+#Fifth Step 
+house3 <- CalPrec[which(CalPrec$seat == "U.S. House-3"),]
+
+#Sixth Step
+esum <- historical.election.summary(house3)
+
+#Step 7
+elx <- ddply(esum,c("year", "district_type"), function(x) 
+  rbind(  data.frame(party="REP",turnout=x$rep.turnout.percent),
+  data.frame(party="DEM",turnout=x$dem.turnout.percent)))
+  
+#Step 8
+ggplot(elx,aes(year,turnout,fill=factor(party))) + 
+  geom_bar(stat="identity") + 
+  facet_wrap(~district_type,scales="free_x") + 
+  scale_fill_brewer(palette="Set1")
+  
+#Step 9
+historical.turnout.summary(house3, district.type="U.S. House", district.number="3", years=c(2012,2014,2016))
+
+#Step 10
+house3s <- district.analyze(house3)
+
+#Step 11- Adds dem.share & rep.share columns 
+house3s$dem.share <- house3s$app.dem/(house3s$app.dem+house3s$app.rep)
+house3s$rep.share <- house3s$app.rep/(house3s$app.dem+house3s$app.rep)
+
+#Step 12
+qplot(dem.share, data=house3s, geom=c("density","rug"),
+       xlab="Dem Vote Share",
+       main="Democratic vote share, by precinct")  + 
+       geom_vline(xintercept=.50)
+       
+#Step 13
+house3s$cl <- cut(house3s$dem.share, breaks=c(0,.48,.52,1), labels=c("Safe Rep", "Tossup", "Safe Dem"))
+
+#Step14
+ggplot(house3s, aes(x=dem.share)) + 
+    geom_bar(aes(fill=cl),binwidth=0.01) + 
+    scale_fill_brewer("Precinct Rating", palette="RdYlBu") + 
+    scale_x_continuous("Democratic Vote Share") + 
+    scale_y_continuous("Frequency")
+  
+#Step15
+house3s[order(house3s$proj.turnout.percent,-house3s$app.dem),c(1:2,20:21),]
+
+#Step16
+ggplot(aes(x=proj.turnout.percent, y=dem.share), data=house3s) + 
+    geom_point(aes(colour=cl,title="a")) + 
+    labs(x="Projected Turnout %", y="Democratic Vote Share %",colour="Seat Type")
+    
+#Step17
+mean(house3s$current.reg)
+sd(house3s$current.reg)
+
+#Step 18
+qplot(current.reg, data=house3s, geom="bar",binwidth=500,xlab="Current Registration") + 
+    scale_y_continuous("Frequency")
+
+#Step 19
+qplot(proj.turnout.percent,dem.share,size=current.reg, data=house3s,colour=cl)+ 
+    labs(x="Projected Turnout %", y="Democratic Vote Share %",colour="Seat Type",size="Current Registration")
+    
+#Step 20
+# replace the fips code and precinct number w/ an empty string
+house3s$precinct.label <- sub("^[0-9]+ - [0-9]+ - ",'',as.character(house3s$precinct_name))
+# plot the previous graph again but this time use precinct.label as the label
+ggplot(house3s, aes(x=proj.turnout.percent, y=dem.share,label=precinct.label)) + 
+    geom_point(aes(colour=cl,size=current.reg)) + 
+    geom_text(size=2.5,vjust=1.5,angle=25) + 
+    labs(x="Projected Turnout %", y="Democratic Vote Share %",colour="Seat Type",size="Current Registration")
+    
+#Step 21- Sorts by registration
+house3s[order(house3s$proj.turnout.percent,-house3s$app.dem,house3s$current.reg),c(1:2,4,20:22),]
+
+#Step 22- this resulted in multiple NaN 
+district.summary(house3s)[,c(1,2,9,10,11)]
+
+#Step 23
+sorted.precincts <- house3s[order(house3s$proj.turnout.percent,-house3s$app.dem,house3s$current.reg),]
+target.precincts <- sorted.precincts[1:(nrow(sorted.precincts)/3),]
+
+#Step 24- Change "640" to vote shortage
+target.precincts$inc <- as.integer(640 * target.precincts$current.reg/sum(target.precincts$current.reg))
+
+target.precincts[,c(2,3,17,23,18,20:22,24)]
+
