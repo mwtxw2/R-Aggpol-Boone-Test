@@ -1,0 +1,7 @@
+dedube.dataset <- distinct(dataset)
+
+joined.dataset <- unite(debude.dataset, "Office Title", "District Number", "Candidate Ballot Name", col="Office Title", sep=" ")
+
+sprea.dataset <- spread(joined.dataset,"Office Title", "Yes votes")
+
+write_csv(precinctmerge,"/Users/matt/Desktop/callawaymerge.csv",na="NA",append=FALSE)
